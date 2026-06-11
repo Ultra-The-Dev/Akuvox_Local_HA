@@ -1,13 +1,13 @@
 {
   "domain": "akuvox_local",
   "name": "Akuvox (Local)",
-  "codeowners": ["@yourusername"],
+  "codeowners": ["@Ultra-The-Dev"],
   "config_flow": true,
   "dependencies": ["webhook", "ffmpeg", "stream"],
-  "documentation": "https://github.com/yourusername/akuvox_local",
+  "documentation": "https://github.com/Ultra-The-Dev/Akuvox_Local_HA",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/yourusername/akuvox_local/issues",
+  "issue_tracker": "https://github.com/Ultra-The-Dev/Akuvox_Local_HA/issues",
   "requirements": [],
-  "version": "1.2.0"
+  "version": "1.2.1"
 }
