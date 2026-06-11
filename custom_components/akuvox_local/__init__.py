@@ -243,10 +243,17 @@ def _async_enrich_device(
         updates["sw_version"] = firmware
     if mac:
         conn = (dr.CONNECTION_NETWORK_MAC, dr.format_mac(mac))
-        if conn not in device.connections:
+        # Another integration (e.g. ONVIF) may already own this MAC on a
+        # different device entry; claiming it again raises a collision error.
+        owner = registry.async_get_device(connections={conn})
+        if conn not in device.connections and owner is None:
             updates["merge_connections"] = {conn}
-    if updates:
+    if not updates:
+        return
+    try:
         registry.async_update_device(device.id, **updates)
+    except Exception as err:  # noqa: BLE001 - enrichment must never break events
+        _LOGGER.debug("Skipping device registry update: %s", err)
 
 
 def _make_webhook_handler(entry: AkuvoxConfigEntry):
@@ -278,7 +285,10 @@ def _make_webhook_handler(entry: AkuvoxConfigEntry):
         event_type = (data.get("event") or "call").lower()
         _LOGGER.debug("Akuvox webhook (%s): %s", event_type, data)
 
-        _async_enrich_device(hass, entry, data)
+        try:
+            _async_enrich_device(hass, entry, data)
+        except Exception:  # noqa: BLE001 - enrichment is best-effort only
+            _LOGGER.debug("Device enrichment failed", exc_info=True)
 
         payload = {"entry_id": entry.entry_id, "event": event_type, "data": data}
         # Fire a bus event for automations...
