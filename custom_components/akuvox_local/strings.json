@@ -1,0 +1,90 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Akuvox Door Phone",
+        "description": "Enter the IP address and web-interface credentials of your Akuvox device (e.g. R20K). Defaults are admin/admin.",
+        "data": {
+          "host": "IP address",
+          "name": "Name",
+          "username": "Username",
+          "password": "Password",
+          "relay_count": "Number of relays (1 = Relay A only)",
+          "high_security": "Device has High Security Mode enabled",
+          "enable_lock": "Add a lock entity per relay",
+          "relock_delay": "Auto re-lock after (seconds)",
+          "enable_camera": "Add the RTSP camera",
+          "rtsp_path": "RTSP stream path",
+          "rtsp_port": "RTSP port",
+          "rtsp_username": "RTSP username (leave blank to reuse the login above)",
+          "rtsp_password": "RTSP password (leave blank to reuse the login above)",
+          "two_way_audio": "Enable two-way audio (go2rtc / ONVIF)",
+          "onvif_port": "ONVIF port (for two-way audio)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the device. Check the IP address and that the device is on the network.",
+      "invalid_auth": "The device rejected the username or password."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Akuvox options",
+        "description": "Update the device credentials and settings.",
+        "data": {
+          "name": "Name",
+          "username": "Username",
+          "password": "Password",
+          "relay_count": "Number of relays",
+          "high_security": "High Security Mode enabled",
+          "enable_lock": "Add a lock entity per relay",
+          "relock_delay": "Auto re-lock after (seconds)",
+          "enable_camera": "Add the RTSP camera",
+          "rtsp_path": "RTSP stream path",
+          "rtsp_port": "RTSP port",
+          "rtsp_username": "RTSP username (leave blank to reuse the login above)",
+          "rtsp_password": "RTSP password (leave blank to reuse the login above)",
+          "two_way_audio": "Enable two-way audio (go2rtc / ONVIF)",
+          "onvif_port": "ONVIF port (for two-way audio)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the device.",
+      "invalid_auth": "The device rejected the username or password."
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "call": "Someone is calling (button pressed)",
+      "call_answered": "Call answered",
+      "call_missed": "Call missed",
+      "door_opened": "Door opened",
+      "valid_card": "Valid card presented",
+      "invalid_card": "Invalid card presented",
+      "motion": "Motion detected",
+      "input": "Input / tamper triggered"
+    }
+  },
+  "services": {
+    "open_door": {
+      "name": "Open door",
+      "description": "Trigger a relay on an Akuvox door phone to open the door.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Akuvox device whose relay should be triggered."
+        },
+        "door_num": {
+          "name": "Relay number",
+          "description": "1 = Relay A, 2 = Relay B, 3 = Relay C, 4 = Relay D."
+        }
+      }
+    }
+  }
+}

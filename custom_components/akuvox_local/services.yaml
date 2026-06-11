@@ -1,0 +1,21 @@
+open_door:
+  name: Open door
+  description: Trigger a relay on an Akuvox door phone to open the door.
+  fields:
+    device_id:
+      name: Device
+      description: The Akuvox device whose relay should be triggered.
+      required: false
+      selector:
+        device:
+          integration: akuvox_local
+    door_num:
+      name: Relay number
+      description: "1 = Relay A, 2 = Relay B, 3 = Relay C, 4 = Relay D."
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
