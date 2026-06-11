@@ -9,7 +9,9 @@ import logging
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.network import get_url
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
@@ -73,6 +75,7 @@ async def async_setup_entry(
         AkuvoxEventSensor(entry, desc) for desc in SENSORS
     ]
     entities.append(AkuvoxLastEventTimeSensor(entry))
+    entities.append(AkuvoxWebhookUrlSensor(entry))
     async_add_entities(entities)
 
 
@@ -147,3 +150,41 @@ class AkuvoxLastEventTimeSensor(_AkuvoxBaseSensor):
     def _handle_event(self, payload: dict) -> None:
         self._attr_native_value = dt_util.utcnow()
         self.async_write_ha_state()
+
+
+class AkuvoxWebhookUrlSensor(SensorEntity):
+    """Shows the webhook URL to paste into the device's Action URL fields.
+
+    Diagnostic helper so users can always find the exact URL Home Assistant
+    expects, instead of relying on the one-time setup notification.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Webhook URL"
+    _attr_icon = "mdi:webhook"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: AkuvoxConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_webhook_url"
+        self._attr_device_info = build_device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        webhook_id = self._entry.runtime_data.webhook_id
+        try:
+            base = get_url(self.hass, prefer_external=False, allow_internal=True)
+        except Exception:  # noqa: BLE001
+            base = "http://<home-assistant-ip>:8123"
+        return f"{base}/api/webhook/{webhook_id}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        url = self.native_value
+        return {
+            "make_call": f"{url}?event=call",
+            "door_opened": f"{url}?event=door_opened",
+            "valid_card": f"{url}?event=valid_card",
+            "invalid_card": f"{url}?event=invalid_card",
+            "motion": f"{url}?event=motion",
+        }
