@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AkuvoxConfigEntry
-from .api import AkuvoxError
+from .api import AkuvoxAuthError, AkuvoxError
 from .const import CONF_RELAY_COUNT, DEFAULT_RELAY_COUNT, RELAY_LABELS
 from .entity import build_device_info
 
@@ -55,5 +55,9 @@ class AkuvoxRelayButton(CoordinatorEntity, ButtonEntity):
     async def async_press(self) -> None:
         try:
             await self._client.async_open_door(self._door_num)
+        except AkuvoxAuthError as err:
+            # Credentials changed on the device — ask the user to update them.
+            self._entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(f"Failed to open door: {err}") from err
         except AkuvoxError as err:
             raise HomeAssistantError(f"Failed to open door: {err}") from err
