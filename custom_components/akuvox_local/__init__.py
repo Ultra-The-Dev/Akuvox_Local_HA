@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 import logging
+import time
 
 import voluptuous as vol
 from aiohttp.web import Request, Response
@@ -16,8 +18,9 @@ from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.network import get_url
+from homeassistant.util import dt as dt_util
 
-from .api import AkuvoxClient, AkuvoxError
+from .api import AkuvoxAuthError, AkuvoxClient, AkuvoxError
 from .const import (
     CONF_HIGH_SECURITY,
     CONF_HOST,
@@ -27,8 +30,14 @@ from .const import (
     CONF_USERNAME,
     CONF_WEBHOOK_ID,
     DOMAIN,
+    EVENT_HISTORY_SIZE,
     PLATFORMS,
     SIGNAL_AKUVOX_EVENT,
+    WEBHOOK_MAX_KEY_LENGTH,
+    WEBHOOK_MAX_KEYS,
+    WEBHOOK_MAX_VALUE_LENGTH,
+    WEBHOOK_RATE_LIMIT_COUNT,
+    WEBHOOK_RATE_LIMIT_WINDOW,
 )
 from .coordinator import AkuvoxCoordinator
 from .stream import build_go2rtc_snippet, go2rtc_stream_name
@@ -43,6 +52,12 @@ class AkuvoxRuntimeData:
     client: AkuvoxClient
     coordinator: AkuvoxCoordinator
     webhook_id: str
+    # Recent webhook events, newest last — surfaced in diagnostics.
+    history: deque = field(
+        default_factory=lambda: deque(maxlen=EVENT_HISTORY_SIZE)
+    )
+    # Timestamps of recently accepted webhooks, for rate limiting.
+    recent_webhooks: deque = field(default_factory=deque)
 
 
 # entry.runtime_data holds an AkuvoxRuntimeData instance.
@@ -64,6 +79,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: AkuvoxConfigEntry) -> bo
     await coordinator.async_config_entry_first_refresh()
 
     webhook_id = entry.data[CONF_WEBHOOK_ID]
+    # Runtime data must exist before the webhook is registered — the handler
+    # reads it as soon as the first push arrives.
+    entry.runtime_data = AkuvoxRuntimeData(
+        client=client, coordinator=coordinator, webhook_id=webhook_id
+    )
+
     # Defensively clear any stale registration (e.g. after a failed reload).
     try:
         webhook.async_unregister(hass, webhook_id)
@@ -81,10 +102,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: AkuvoxConfigEntry) -> bo
         # reverse proxies / different subnets still receive events. The webhook
         # ID is a long random secret.
         local_only=False,
-    )
-
-    entry.runtime_data = AkuvoxRuntimeData(
-        client=client, coordinator=coordinator, webhook_id=webhook_id
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -195,6 +212,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         for entry in entries:
             try:
                 await entry.runtime_data.client.async_open_door(door_num)
+            except AkuvoxAuthError as err:
+                # Credentials changed on the device — ask the user to update them.
+                entry.async_start_reauth(hass)
+                raise HomeAssistantError(f"Failed to open door: {err}") from err
             except AkuvoxError as err:
                 raise HomeAssistantError(f"Failed to open door: {err}") from err
 
@@ -256,6 +277,34 @@ def _async_enrich_device(
         _LOGGER.debug("Skipping device registry update: %s", err)
 
 
+def _sanitize_webhook_data(raw: dict) -> dict[str, str]:
+    """Clamp untrusted webhook input to sane key/value counts and lengths."""
+    data: dict[str, str] = {}
+    # The event type must survive truncation regardless of key order.
+    if "event" in raw:
+        data["event"] = str(raw["event"])[:WEBHOOK_MAX_VALUE_LENGTH]
+    for key, value in raw.items():
+        if key == "event":
+            continue
+        if len(data) >= WEBHOOK_MAX_KEYS:
+            _LOGGER.debug("Akuvox webhook: payload truncated at %s keys", WEBHOOK_MAX_KEYS)
+            break
+        data[str(key)[:WEBHOOK_MAX_KEY_LENGTH]] = str(value)[:WEBHOOK_MAX_VALUE_LENGTH]
+    return data
+
+
+def _webhook_rate_limited(runtime: AkuvoxRuntimeData) -> bool:
+    """Sliding-window rate limit so a misbehaving device can't flood HA."""
+    now = time.monotonic()
+    recent = runtime.recent_webhooks
+    while recent and now - recent[0] > WEBHOOK_RATE_LIMIT_WINDOW:
+        recent.popleft()
+    if len(recent) >= WEBHOOK_RATE_LIMIT_COUNT:
+        return True
+    recent.append(now)
+    return False
+
+
 def _make_webhook_handler(entry: AkuvoxConfigEntry):
     """Build a webhook handler bound to this config entry."""
 
@@ -268,22 +317,42 @@ def _make_webhook_handler(entry: AkuvoxConfigEntry):
           /api/webhook/<id>?event=door_opened&relay=$relay1status&mac=$mac
         Query params (GET) and form/JSON body (POST) are both accepted.
         """
-        data: dict[str, str] = {}
-        data.update(request.query)
-        if request.method == "POST":
+        runtime: AkuvoxRuntimeData = entry.runtime_data
+        if _webhook_rate_limited(runtime):
+            _LOGGER.warning(
+                "Akuvox webhook for %s rate-limited (>%s pushes/%ss); dropping event",
+                entry.title,
+                WEBHOOK_RATE_LIMIT_COUNT,
+                WEBHOOK_RATE_LIMIT_WINDOW,
+            )
+            return Response(text="Too Many Requests", status=429)
+
+        raw: dict = dict(request.query)
+        if request.method in ("POST", "PUT"):
             try:
                 if request.content_type == "application/json":
                     body = await request.json()
                     if isinstance(body, dict):
-                        data.update({k: str(v) for k, v in body.items()})
+                        raw.update(body)
                 else:
                     form = await request.post()
-                    data.update({k: str(v) for k, v in form.items()})
+                    raw.update(form)
             except Exception:  # noqa: BLE001 - never fail on a bad push
-                _LOGGER.debug("Akuvox webhook: could not parse POST body")
+                _LOGGER.debug("Akuvox webhook: could not parse %s body", request.method)
+        data = _sanitize_webhook_data(raw)
 
         event_type = (data.get("event") or "call").lower()
         _LOGGER.debug("Akuvox webhook (%s): %s", event_type, data)
+
+        # A push from the device proves it is online — refresh availability.
+        runtime.coordinator.async_set_updated_data(True)
+        runtime.history.append(
+            {
+                "time": dt_util.utcnow().isoformat(),
+                "event": event_type,
+                "data": data,
+            }
+        )
 
         try:
             _async_enrich_device(hass, entry, data)
