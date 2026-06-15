@@ -91,6 +91,9 @@ class AkuvoxClient:
         self._username = username or ""
         self._password = password or ""
         self._high_security = high_security
+        # Label of the URL/auth format that last succeeded; tried first on
+        # subsequent calls so the door opens without fallback round-trips.
+        self._preferred_label: str | None = None
 
     @property
     def host(self) -> str:
@@ -138,6 +141,9 @@ class AkuvoxClient:
                 continue
             seen.add(key)
             unique.append(attempt)
+        # Try the format that worked last time first.
+        if self._preferred_label:
+            unique.sort(key=lambda a: a.label != self._preferred_label)
         return unique
 
     # -- Public API -----------------------------------------------------------
@@ -160,6 +166,7 @@ class AkuvoxClient:
                 continue
             else:
                 _LOGGER.debug("Open door succeeded via %s", attempt.label)
+                self._preferred_label = attempt.label
                 return
         raise last_error
 
