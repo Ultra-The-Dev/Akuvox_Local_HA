@@ -21,6 +21,15 @@
           "two_way_audio": "Enable two-way audio (go2rtc / ONVIF)",
           "onvif_port": "ONVIF port (for two-way audio)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Akuvox device",
+        "description": "The device at {host} rejected the stored credentials. Enter the current username and password.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "high_security": "Device has High Security Mode enabled"
+        }
       }
     },
     "error": {
@@ -28,7 +37,8 @@
       "invalid_auth": "The device rejected the username or password."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "options": {
