@@ -64,6 +64,24 @@ SIGNAL_AKUVOX_EVENT = f"{DOMAIN}_event"
 # Home Assistant event fired on the bus for automations.
 HA_EVENT = f"{DOMAIN}_event"
 
+# --- Webhook hardening ---------------------------------------------------
+# Max events accepted per rolling window before pushes are dropped (protects
+# against a misconfigured device or a flooded webhook).
+WEBHOOK_RATE_LIMIT_COUNT = 30
+WEBHOOK_RATE_LIMIT_WINDOW = 10.0  # seconds
+# Sanitization limits applied to incoming webhook payloads.
+WEBHOOK_MAX_KEYS = 32
+WEBHOOK_MAX_KEY_LENGTH = 64
+WEBHOOK_MAX_VALUE_LENGTH = 256
+# Number of recent events kept in memory for diagnostics.
+EVENT_HISTORY_SIZE = 50
+
+# --- Event-driven binary sensors ------------------------------------------
+# Seconds before the Ringing / Motion / Door sensors switch back off.
+RINGING_OFF_DELAY = 30
+MOTION_OFF_DELAY = 30
+DOOR_OFF_DELAY = 10
+
 # Event types reported via the Action URL webhook (?event=...).
 EVENT_TYPES = [
     "call",          # someone pressed the call button / device is calling
