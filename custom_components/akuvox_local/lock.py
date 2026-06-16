@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 
+from collections.abc import Callable
+
 from homeassistant.components.lock import LockEntity, LockEntityFeature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -17,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 
 from . import AkuvoxConfigEntry
-from .api import AkuvoxError
+from .api import AkuvoxAuthError, AkuvoxError
 from .const import (
     CONF_ENABLE_LOCK,
     CONF_RELAY_COUNT,
@@ -64,6 +66,16 @@ class AkuvoxRelayLock(LockEntity):
         self._attr_unique_id = f"{entry.entry_id}_lock_{door_num}"
         self._attr_device_info = build_device_info(entry)
         self._attr_is_locked = True
+        self._cancel_relock: Callable[[], None] | None = None
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._cancel_relock_timer()
+        await super().async_will_remove_from_hass()
+
+    def _cancel_relock_timer(self) -> None:
+        if self._cancel_relock is not None:
+            self._cancel_relock()
+            self._cancel_relock = None
 
     async def async_open(self, **kwargs) -> None:
         """Unlatch — same momentary relay pulse as unlock."""
@@ -73,21 +85,30 @@ class AkuvoxRelayLock(LockEntity):
         """Pulse the relay open, then optimistically re-lock."""
         try:
             await self._client.async_open_door(self._door_num)
+        except AkuvoxAuthError as err:
+            # Credentials changed on the device — ask the user to update them.
+            self._entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(f"Failed to unlock: {err}") from err
         except AkuvoxError as err:
             raise HomeAssistantError(f"Failed to unlock: {err}") from err
 
         self._attr_is_locked = False
         self.async_write_ha_state()
 
-        @callback
-        def _relock(_now) -> None:
-            self._attr_is_locked = True
-            self.async_write_ha_state()
+        self._cancel_relock_timer()
+        self._cancel_relock = async_call_later(
+            self.hass, self._relock_delay, self._relock
+        )
 
-        async_call_later(self.hass, self._relock_delay, _relock)
+    @callback
+    def _relock(self, _now) -> None:
+        self._cancel_relock = None
+        self._attr_is_locked = True
+        self.async_write_ha_state()
 
     async def async_lock(self, **kwargs) -> None:
         """The strike re-locks itself; just reflect the state."""
+        self._cancel_relock_timer()
         self._attr_is_locked = True
         self.async_write_ha_state()
 
