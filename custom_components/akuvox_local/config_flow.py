@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -166,6 +167,49 @@ class AkuvoxConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=_build_schema(user_input or {}, include_host=True),
             errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Start a re-auth flow when the device rejects the stored credentials."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for fresh credentials and validate them against the device."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            merged = {**entry.data, **user_input}
+            error = await _async_validate(self.hass, entry.data[CONF_HOST], merged)
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input
+                )
+
+        defaults = user_input or entry.data
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")
+                ): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Required(
+                    CONF_HIGH_SECURITY,
+                    default=defaults.get(CONF_HIGH_SECURITY, DEFAULT_HIGH_SECURITY),
+                ): bool,
+            }
+        )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"host": entry.data[CONF_HOST]},
         )
 
     @staticmethod
